@@ -211,3 +211,118 @@ transformation
                             method = c("center", "scale", "YeoJohnson", "nzv"))
                             
     predict(pp_no_nzv, newdata = schedulingData[1:6, -8])                      
+
+## Data splitting
+
+The function `createDataPartition` can be used to create balanced splits
+of the data. If the y argument to this function is a factor, the random
+sampling occurs within each class and should preserve the overall class
+distribution of the data. For example, to create a single 80/20% split
+of the iris data:
+
+    trainIndex <- createDataPartition(iris$Species, p = .8, 
+                                      list = FALSE, 
+                                      times = 1)
+
+    irisTrain <- iris[ trainIndex,]
+    irisTest  <- iris[-trainIndex,]
+
+The `list = FALSE` avoids returning the data as a list. This function
+also has an argument, `times`, that can create multiple splits at once;
+the data indices are returned in a list of integer vectors. Similarly,
+`createResample` can be used to make simple bootstrap samples and
+`createFolds` can be used to generate balanced cross–validation
+groupings from a set of data.
+
+## Model Training and Parameter Tuning
+
+The `train` function can be used to
+
+- evaluate, using resampling, the effect of model tuning parameters on
+  performance
+
+- choose the “optimal” model across these parameters
+
+- estimate model performance from a training set
+
+First, a specific model must be chosen. Currently, 238 are available
+using caret
+
+Once the model and tuning parameter values have been defined, the type
+of resampling should be also be specified. Currently, k-fold
+cross-validation (once or repeated), leave-one-out cross-validation and
+bootstrap (simple estimation or the 632 rule) resampling methods can be
+used by train. After resampling, the process produces a profile of
+performance measures is available to guide the user as to which tuning
+parameter values should be chosen. By default, the function
+automatically chooses the tuning parameters associated with the best
+value, although different algorithms can be used
+
+    library(caret)
+    set.seed(998)
+    inTraining <- createDataPartition(Sonar$Class, p = .75, list = FALSE)
+    training <- Sonar[ inTraining,]
+    testing  <- Sonar[-inTraining,]
+
+## Basic Parameter Tuning
+
+By default, simple bootstrap resampling is used for line 3 in the
+algorithm above. Others are available, such as repeated K-fold
+cross-validation, leave-one-out etc. The function trainControl can be
+used to specifiy the type of resampling:
+
+    fitControl <- trainControl(## 10-fold CV
+                               method = "repeatedcv",
+                               number = 10,
+                               ## repeated ten times
+                               repeats = 10)
+
+The first two arguments to train are the predictor and outcome data
+objects, respectively. The third argument, method, specifies the type of
+model To illustrate, we will fit a boosted tree model via the gbm
+package. The basic syntax for fitting this model using repeated
+cross-validation is shown below:
+
+    set.seed(825)
+    gbmFit1 <- train(Class ~ ., data = training, 
+                     method = "gbm", 
+                     trControl = fitControl,
+                     ## This last option is actually one
+                     ## for gbm() that passes through
+                     verbose = FALSE)
+    gbmFit1
+
+    ## Stochastic Gradient Boosting 
+    ## 
+    ## 157 samples
+    ##  60 predictor
+    ##   2 classes: 'M', 'R' 
+    ## 
+    ## No pre-processing
+    ## Resampling: Cross-Validated (10 fold, repeated 10 times) 
+    ## Summary of sample sizes: 141, 142, 141, 142, 141, 142, ... 
+    ## Resampling results across tuning parameters:
+    ## 
+    ##   interaction.depth  n.trees  Accuracy   Kappa    
+    ##   1                   50      0.7935784  0.5797839
+    ##   1                  100      0.8171078  0.6290208
+    ##   1                  150      0.8219608  0.6386184
+    ##   2                   50      0.8041912  0.6027771
+    ##   2                  100      0.8302059  0.6556940
+    ##   2                  150      0.8283627  0.6520181
+    ##   3                   50      0.8110343  0.6170317
+    ##   3                  100      0.8301275  0.6551379
+    ##   3                  150      0.8310343  0.6577252
+    ## 
+    ## Tuning parameter 'shrinkage' was held constant at a value of 0.1
+    ## 
+    ## Tuning parameter 'n.minobsinnode' was held constant at a value of 10
+    ## Accuracy was used to select the optimal model using the largest value.
+    ## The final values used for the model were n.trees = 150,
+    ##  interaction.depth = 3, shrinkage = 0.1 and n.minobsinnode = 10.
+
+For these models, `train` can automatically create a grid of tuning
+parameters. By default, if p is the number of tuning parameters, the
+grid size is 3^p. 
+
+### Reproducibility
