@@ -539,3 +539,539 @@ how models are created, with possible values:
 
 - `allowParallel`: a logical that governs whether train should use
   parallel processing (if available)
+
+### Alternate Performance Metrics
+
+The user can change the metric used to determine the best settings. By
+default, `RMSE, R2, and the mean absolute error (MAE)` are computed for
+regression while `accuracy` and `Kappa` are computed for classification.
+Also by default, the parameter values are chosen using RMSE and
+accuracy, respectively for regression and classification. The `metric`
+argument of the `train` function allows the user to control which the
+optimality criterion is used. For example, in problems where there are a
+low percentage of samples in one class, using `metric = "Kappa"` can
+improve quality of the final model.
+
+For example:
+
+    set.seed(825)
+    gbmFit3 <- train(Class ~ ., data = training, 
+                     method = "gbm", 
+                     trControl = fitControl, 
+                     verbose = FALSE, 
+                     tuneGrid = gbmGrid,
+                     ## Specify which metric to optimize
+                     metric = "ROC")
+    gbmFit3
+
+    ## Stochastic Gradient Boosting 
+    ## 
+    ## 157 samples
+    ##  60 predictor
+    ##   2 classes: 'M', 'R' 
+    ## 
+    ## No pre-processing
+    ## Resampling: Cross-Validated (10 fold, repeated 10 times) 
+    ## Summary of sample sizes: 141, 142, 141, 142, 141, 142, ... 
+    ## Resampling results across tuning parameters:
+    ## 
+    ##   interaction.depth  n.trees  ROC   Sens  Spec
+    ##   1                    50     0.86  0.86  0.69
+    ##   1                   100     0.88  0.85  0.75
+    ##   1                   150     0.89  0.86  0.77
+    ##   1                   200     0.90  0.87  0.78
+    ##   1                   250     0.90  0.86  0.78
+    ##   1                   300     0.90  0.87  0.78
+    ##   :                   :        :     :      :    
+    ##   9                  1350     0.92  0.88  0.81
+    ##   9                  1400     0.92  0.88  0.80
+    ##   9                  1450     0.92  0.88  0.81
+    ##   9                  1500     0.92  0.88  0.80
+    ## 
+    ## Tuning parameter 'shrinkage' was held constant at a value of 0.1
+    ## 
+    ## Tuning parameter 'n.minobsinnode' was held constant at a value of 20
+    ## ROC was used to select the optimal model using the largest value.
+    ## The final values used for the model were n.trees = 1450,
+    ##  interaction.depth = 5, shrinkage = 0.1 and n.minobsinnode = 20.
+
+In this case, the average area under the ROC curve associated with the
+optimal tuning parameters was `0.922 across the 100 resamples`.
+
+### Choosing the Final Model
+
+Another method for customizing the tuning process is to modify the
+algorithm that is used to select the “best” parameter values, given the
+performance numbers. By default, the train function chooses the model
+with the largest performance value (or smallest, for mean squared error
+in regression models).
+
+Other schemes for selecting model can be used. Breiman et al (1984)
+suggested the “one standard error rule” for simple tree-based models. In
+this case, the model with the best performance value is identified and,
+using resampling, we can estimate the standard error of performance. The
+final model used was the simplest model within one standard error of the
+(empirically) best model. With simple trees this makes sense, since
+these models will start to over-fit as they become more and more
+specific to the training data.
+
+`train` allows the user to specify alternate rules for selecting the
+final model. The argument `selectionFunction` can be used to supply a
+function to algorithmically determine the final model. There are three
+existing functions in the package: best is chooses the largest/smallest
+value, oneSE attempts to capture the spirit of Breiman et al (1984) and
+tolerance selects the least complex model within some percent tolerance
+of the best value. See ?best for more details.
+
+User-defined functions can be used, as long as they have the following
+arguments:
+
+`x` is a data frame containing the tune parameters and their associated
+performance metrics. Each row corresponds to a different tuning
+parameter combination.
+
+`metric` a character string indicating which performance metric should
+be optimized (this is passed in directly from the metric argument of
+train.
+
+`maximize` is a single logical value indicating whether larger values of
+the performance metric are better (this is also directly passed from the
+call to train). The function should output a single integer indicating
+which row in `x` is chosen.
+
+    whichTwoPct <- tolerance(gbmFit3$results, metric = "ROC", 
+                             tol = 2, maximize = TRUE)  
+
+    gbmFit3$results[whichTwoPct,1:6]
+
+### Extracting Predictions and Class Probabilities
+
+For `predict.train`, the type options are standardized to be `"class"`
+which is the default and `"prob"` (the underlying code matches these to
+the appropriate choices for each model. For example:
+
+    predict(gbmFit3, newdata = head(testing))
+
+    ## [1] R M R M R M
+    ## Levels: M R
+
+    predict(gbmFit3, newdata = head(testing), type = "prob")
+
+    ##              M            R
+    ## 1 3.215213e-02 9.678479e-01
+    ## 2 1.000000e+00 3.965815e-08
+    ## 3 6.996088e-13 1.000000e+00
+    ## 4 9.070652e-01 9.293483e-02
+    ## 5 2.029754e-03 9.979702e-01
+    ## 6 9.999662e-01 3.377548e-05
+
+### Exploring and Comparing Resampling Distributions
+
+The `caret` package also includes functions to characterize the
+differences between models (generated using train, sbf or rfe) via their
+resampling distributions. These functions are based on the work of
+Hothorn et al. (2005) and Eugster et al (2008).
+
+First, a support vector machine model is fit to the Sonar data. The data
+are centered and scaled using the `preProc` argument. Note that the same
+random number seed is set prior to the model that is identical to the
+seed used for the boosted tree model. This ensures that the same
+resampling sets are used, which will come in handy when we compare the
+resampling profiles between models.
+
+    svmFit <- train(Class ~ ., data = training, 
+                     method = "svmRadial", 
+                     trControl = fitControl, 
+                     preProc = c("center", "scale"),
+                     tuneLength = 8,
+                     metric = "ROC")
+                     
+                     
+
+
+    rdaFit <- train(Class ~ ., data = training, 
+                     method = "rda", 
+                     trControl = fitControl, 
+                     tuneLength = 4,
+                     metric = "ROC")
+                     
+                     
+    resamps <- resamples(list(GBM = gbmFit3,
+                              SVM = svmFit,
+                              RDA = rdaFit))
+
+You can do a summary of the fitted models to get to understand how the
+metrics compare for the different models.
+
+    summary(resamps)
+
+Additionally one can plot to see visually how the metrics change for the
+different models
+
+    dotplot(resamps, metric = "ROC")
+
+Since models are fit on the same versions of the training data, it makes
+sense to make inferences on the differences between models. In this way
+we reduce the within-resample correlation that may exist. We can compute
+the differences, then use a simple t-test to evaluate the null
+hypothesis that there is no difference between models.
+
+    difValues <- diff(resamps)
+
+    summary(difValues)
+
+    bwplot(difValues, layout = c(3, 1))
+
+    dotplot(difValues)
+
+### Fitting Models Without Parameter Tuning
+
+In cases where the model tuning values are known, train can be used to
+fit the model to the entire training set without any resampling or
+parameter tuning. Using the method = “none” option in trainControl can
+be used. For example:
+
+    fitControl <- trainControl(method = "none", classProbs = TRUE)
+
+    set.seed(825)
+    gbmFit4 <- train(Class ~ ., data = training, 
+                     method = "gbm", 
+                     trControl = fitControl, 
+                     verbose = FALSE, 
+                     ## Only a single model can be passed to the
+                     ## function when no resampling is used:
+                     tuneGrid = data.frame(interaction.depth = 4,
+                                           n.trees = 100,
+                                           shrinkage = .1,
+                                           n.minobsinnode = 20),
+                     metric = "ROC")
+
+    predict(gbmFit4, newdata = head(testing))
+
+### Random Hyperparameter Search
+
+To use random search, another option is available in `trainControl`
+called `search`. Possible values of this argument are `"grid"` and
+`"random"`. The built-in models contained in caret contain code to
+generate random tuning parameter combinations. The total number of
+unique combinations is specified by the `tuneLength` option to train.
+
+    inTraining <- createDataPartition(Sonar$Class, p = .75, list = FALSE)
+    training <- Sonar[ inTraining,]
+    testing  <- Sonar[-inTraining,]
+
+    fitControl <- trainControl(method = "repeatedcv",
+                               number = 10,
+                               repeats = 10,
+                               classProbs = TRUE,
+                               summaryFunction = twoClassSummary,
+                               search = "random")
+
+    set.seed(825)
+    rda_fit <- train(Class ~ ., data = training, 
+                      method = "rda",
+                      metric = "ROC",
+                      tuneLength = 30,
+                      trControl = fitControl)
+
+There is currently only a `ggplot` method (instead of a basic plot
+method). The results of this function with random searching depends on
+the number and type of tuning parameters. In this case, it produces a
+scatter plot of the continuous parameters.
+
+    ggplot(rda_fit) + theme(legend.position = "top")
+
+### Subsampling For Class Imbalances
+
+In classification problems, a disparity in the frequencies of the
+observed classes can have a significant negative impact on model
+fitting. One technique for resolving such a class imbalance is to
+subsample the training data in a manner that mitigates the issues.
+Examples of sampling methods for this purpose are:
+
+- `down-sampling`: randomly subset all the classes in the training set
+  so that their class frequencies match the least prevalent class. For
+  example, suppose that 80% of the training set samples are the first
+  class and the remaining 20% are in the second class. Down-sampling
+  would randomly sample the first class to be the same size as the
+  second class (so that only 40% of the total training set is used to
+  fit the model). caret contains a function (downSample) to do this.
+
+- `up-sampling`: randomly sample (with replacement) the minority class
+  to be the same size as the majority class. caret contains a function
+  (upSample) to do this. hybrid methods: techniques such as `SMOTE` and
+  `ROSE` down-sample the majority class and synthesize new data points
+  in the minority class. There are two packages (DMwR and ROSE) that
+  implement these procedures.
+
+Note that this type of sampling is different from splitting the data
+into a training and test set. You would never want to artificially
+balance the test set; its class frequencies should be in-line with what
+one would see “in the wild”. Also, the above procedures are independent
+of resampling methods such as cross-validation and the bootstrap.
+
+In practice, one could take the training set and, before model fitting,
+sample the data. There are two issues with this approach
+
+- Firstly, during model tuning the holdout samples generated during
+  resampling are also glanced and may not reflect the class imbalance
+  that future predictions would encounter. This is likely to lead to
+  overly optimistic estimates of performance.
+
+- Secondly, the subsampling process will probably induce more model
+  uncertainty. Would the model results differ under a different
+  subsample? As above, the resampling statistics are more likely to make
+  the model appear more effective than it actually is. The alternative
+  is to include the subsampling inside of the usual resampling
+  procedure. This is also advocated for pre-process and featur selection
+  steps too. The two disadvantages are that it might increase
+  computational times and that it might also complicate the analysis in
+  other ways (see the section below about the pitfalls).
+
+<!-- -->
+
+    set.seed(9560)
+    down_train <- downSample(x = imbal_train[, -ncol(imbal_train)],
+                             y = imbal_train$Class)
+    table(down_train$Class)  
+
+    set.seed(9560)
+    up_train <- upSample(x = imbal_train[, -ncol(imbal_train)],
+                         y = imbal_train$Class)                         
+    table(up_train$Class) 
+
+- Using `SMOTE` to ensure class balance
+
+<!-- -->
+
+    library(DMwR)
+
+    set.seed(9560)
+    smote_train <- SMOTE(Class ~ ., data  = imbal_train)                         
+    table(smote_train$Class) 
+
+Using library `ROSE` to ensure class balancing
+
+    library(ROSE)
+
+    set.seed(9560)
+    rose_train <- ROSE(Class ~ ., data  = imbal_train)$data                         
+    table(rose_train$Class) 
+
+Recent versions of caret allow the user to specify subsampling when
+using `train` so that it is conducted inside of resampling. All four
+methods shown above can be accessed with the basic package using simple
+syntax. If you want to use your own technique, or want to change some of
+the parameters for SMOTE or ROSE, the last section below shows how to
+use custom subsampling.
+
+The way to enable subsampling is to use yet another option in
+trainControl called sampling. The most basic syntax is to use a
+character string with the name of the sampling method, either
+`"down", "up", "smote", or "rose"`. Note that you will need to have the
+DMwR and ROSE packages installed to use `SMOTE` and `ROSE`,
+respectively.
+
+For example, for down sampling n the train function, we use down in the
+sampling argument of then `train` function:
+
+    ctrl <- trainControl(method = "repeatedcv", repeats = 5,
+                         classProbs = TRUE,
+                         summaryFunction = twoClassSummary,
+                         ## new option here:
+                         sampling = "down")
+                         
+                         
+    down_inside <- train(Class ~ ., data = imbal_train,
+                         method = "treebag",
+                         nbagg = 50,
+                         metric = "ROC",
+                         trControl = ctrl)                
+
+### Using Recipes with train
+
+Modeling functions in R let you specific a model using a formula, the
+x/y interface, or both. Formulas are good because they will handle a lot
+of minutia for you (e.g. dummy variables, interactions, etc) so you
+don’t have to get your hands dirty. They work pretty well but also have
+limitations too. Their biggest issue is that not all modeling functions
+have a formula interface (although train helps solve that).
+
+Recipes are a third method for specifying model terms but also allow for
+a broad set of preprocessing options for encoding, manipulating, and
+transforming data. They cover a lot of techniques that formulas cannot
+do naturally.
+\``Recipes can be built incrementally in a way similar to how`dplyr`or`ggplot2\`
+are created. The package website has examples of how to use the package
+and lists the possible techniques (called steps). A recipe can then be
+handed to train in lieu of a formula.
+
+For example:
+
+    tox <- tox %>%
+      select(-Molecule) %>%
+      ## Suppose the easy of manufacturability is 
+      ## related to the molecular weight of the compound
+      mutate(manufacturability  = 1/moe2D_Weight) %>%
+      mutate(manufacturability = manufacturability/sum(manufacturability))
+
+    tox_recipe <- recipe(Activity ~ ., data = tox)
+
+- Now let’s add some steps to the recipe First, we remove sparse and
+  unbalanced predictors
+
+- As mentioned above, there are a lot of different surface area
+  predictors and they tend to have very high correlations with one
+  another. We’ll add one or more predictors to the model in place of
+  these predictors using principal component analysis. The step will
+  retain the number of components required to capture 95% of the
+  information contained in these 56 predictors. We’ll name these new
+  predictors surf_area_1, surf_area_2 etc.
+
+- Now, lets specific that the third step in the recipe is to reduce the
+  number of predictors so that no pair has an absolute correlation
+  greater than 0.90. However, we might want to keep the surface area
+  principal components so we exclude these from the filter (using the
+  minus sign)
+
+- Finally, we can center and scale all of the predictors that are
+  available at the end of the recipe:
+
+<!-- -->
+
+    tox_recipe <- tox_recipe %>% step_nzv(all_predictors()) %>%
+                  step_pca(contains("VSA"), 
+                  prefix = "surf_area_",threshold = .95)%>% 
+                  step_center(all_predictors()) %>%
+                  step_scale(all_predictors()) 
+
+    tox_ctrl <- trainControl(method = "cv", summaryFunction = model_stats)
+    set.seed(888)
+    tox_svm <- train(tox_recipe, data = tox,
+                     method = "svmRadial", 
+                     metric = "wRMSE",
+                     maximize = FALSE,
+                     tuneLength = 10,
+                     trControl = tox_ctrl)
+
+### Variable Importance
+
+All measures of importance are scaled to have a maximum value of 100,
+unless the `scale` argument of varImp.train is set to `FALSE`.
+
+For example:
+
+    gbmImp <- varImp(gbmFit3, scale = FALSE)
+    gbmImp
+
+    ## gbm variable importance
+    ## 
+    ##   only 20 most important variables shown (out of 60)
+    ## 
+    ##     Overall
+    ## V11  21.308
+    ## V12  11.896
+    ## V36   9.810
+    ## V52   9.793
+    ## V51   9.324
+    ## V46   5.536
+    ## V13   5.005
+    ## V9    4.396
+    ## V31   4.356
+    ## V37   4.233
+    ## V48   4.109
+    ## V3    3.814
+    ## V23   3.554
+    ## V5    3.544
+    ## V1    3.491
+    ## V43   3.347
+    ## V45   3.110
+    ## V17   3.064
+    ## V27   2.941
+    ## V54   2.819
+
+For importance scores generated from varImp.train, a plot method can be
+used to visualize the results. In the plot below, the top option is used
+to make the image more readable.
+
+    plot(gbmImp, top = 20)
+
+### Meauring the performance of models
+
+Example for regression models
+
+    set.seed(7279)
+    lm_fit <- train(medv ~ . + rm:lstat,
+                    data = bh_tr, 
+                    method = "lm")
+    bh_pred <- predict(lm_fit, bh_te)
+
+    lm_fit
+
+    ## Linear Regression 
+    ## 
+    ## 381 samples
+    ##  13 predictor
+    ## 
+    ## No pre-processing
+    ## Resampling: Bootstrapped (25 reps) 
+    ## Summary of sample sizes: 381, 381, 381, 381, 381, 381, ... 
+    ## Resampling results:
+    ## 
+    ##   RMSE      Rsquared   MAE     
+    ##   4.374098  0.7724562  2.963927
+    ## 
+    ## Tuning parameter 'intercept' was held constant at a value of TRUE
+    postResample(pred = bh_pred, obs = bh_te$medv)
+    ##      RMSE  Rsquared       MAE 
+    ## 4.0927043 0.8234427 2.8163731
+
+For classification type problems,confusionmatrix is used:
+
+    confusionMatrix(data = test_set$pred, reference = test_set$obs)
+
+    ## Confusion Matrix and Statistics
+    ## 
+    ##           Reference
+    ## Prediction Class1 Class2
+    ##     Class1    183    141
+    ##     Class2     13    663
+    ##                                           
+    ##                Accuracy : 0.846           
+    ##                  95% CI : (0.8221, 0.8678)
+    ##     No Information Rate : 0.804           
+    ##     P-Value [Acc > NIR] : 0.0003424       
+    ##                                           
+    ##                   Kappa : 0.6081          
+    ##                                           
+    ##  Mcnemar's Test P-Value : < 2.2e-16       
+    ##                                           
+    ##             Sensitivity : 0.9337          
+    ##             Specificity : 0.8246          
+    ##          Pos Pred Value : 0.5648          
+    ##          Neg Pred Value : 0.9808          
+    ##              Prevalence : 0.1960          
+    ##          Detection Rate : 0.1830          
+    ##    Detection Prevalence : 0.3240          
+    ##       Balanced Accuracy : 0.8792          
+    ##                                           
+    ##        'Positive' Class : Class1          
+    ## 
+
+When there are three or more classes, confusionMatrix will show the
+confusion matrix and a set of “one-versus-all” results. For example, in
+a three class problem, the sensitivity of the first class is calculated
+against all the samples in the second and third classes (and so on).
+
+The confusionMatrix matrix frames the errors in terms of sensitivity and
+specificity. In the case of information retrieval, the precision and
+recall might be more appropriate. In this case, the option mode can be
+used to get those statistics:
+
+    confusionMatrix(data = test_set$pred, reference = test_set$obs, mode = "prec_recall")
+
+Again, the positive argument can be used to control which factor level
+is associated with a “found” or “important” document or sample.
+
+There are individual functions called `sensitivity`, `specificity`,
+`posPredValue`, `negPredValue`, `precision`, `recall`, and `F_meas`.
